@@ -30,6 +30,57 @@ if($method !== 'POST' && $method !== 'GET') {
 	exit;
 }
 
+
+/*
+ * ----------------------------------------------------------------------------
+ * TEST PING to API endpoint
+ * Use: /api/?ping=1
+ * Does not require BEARER TOKEN
+ * ----------------------------------------------------------------------------
+ */
+
+if ($method === 'GET' && (($_GET['ping'] ?? null) === '1')) {
+  echo json_encode(['ok' => true]);
+  exit;
+}
+
+
+/*
+ * ----------------------------------------------------------------------------
+ * AUTHENTICATED PING
+ * Use: /api/?ping=auth
+ * Requires valid BEARER TOKEN
+ * ----------------------------------------------------------------------------
+ */
+if ($method === 'GET' && ($_GET['ping'] ?? null) === 'auth') {
+
+	// Pull Authorization header (same logic as below)
+	$auth = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
+	if (!$auth && function_exists('apache_request_headers')) {
+		$headers = apache_request_headers();
+		$auth = $headers['Authorization'] ?? $headers['authorization'] ?? '';
+	}
+
+	if (!preg_match('/^Bearer\s+(.+)$/i', trim($auth), $m)) {
+		http_response_code(401);
+		echo json_encode(['error' => 'unauthorized']);
+		exit;
+	}
+
+	$token = $m[1];
+
+	// Accept only INGEST token
+	if (!hash_equals(TOKEN, $token)) {
+	  http_response_code(401);
+	  echo json_encode(['error' => 'unauthorized']);
+	  exit;
+	}
+
+	echo json_encode(['ok' => true]);
+	exit;
+}
+
+
 // AUTH: Bearer token (shared)
 $auth = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
 if (!$auth && function_exists('apache_request_headers')) {
@@ -46,16 +97,22 @@ if (!preg_match('/^Bearer\s+(.+)$/i', trim($auth), $m)) {
 
 $token = $m[1];
 
+/*
+ * ----------------------------------------------------------------------------
+ * Responses
+ * ----------------------------------------------------------------------------
+ */
+
 if($method === 'POST') {
 	// POST response
-	if(!hash_equals(INGEST_TOKEN, $token)) {
+	if(!hash_equals(TOKEN, $token)) {
 		http_response_code(401);
 		echo json_encode(['error' => 'unauthorized']);
 		exit;
 	}
 } else {
 	// GET response
-	if (!hash_equals(INGEST_TOKEN, $token)) {
+	if (!hash_equals(TOKEN, $token)) {
 		http_response_code(401);
 		echo json_encode(['error' => 'unauthorized']);
 		exit;
@@ -69,7 +126,7 @@ if($method === 'POST') {
  * ----------------------------------------------------------------------------
  */
 if ($method === 'GET') {
-	if (!is_readable(GEO_LOG_FILE)) {
+	if (!is_readable(LOG_FILE)) {
 		http_response_code(500);
 		echo json_encode(['error' => 'log_not_readable']);
 		exit;
@@ -82,7 +139,7 @@ if ($method === 'GET') {
 
 	$entries = [];
 
-	$fh = fopen(GEO_LOG_FILE, 'rb');
+	$fh = fopen(LOG_FILE, 'rb');
 	if ($fh === false) {
 		http_response_code(500);
 		echo json_encode(['error' => 'cannot_open_log']);
@@ -231,7 +288,7 @@ $record = [
 $line = json_encode($record, JSON_UNESCAPED_SLASHES) . "\n";
 
 // APPEND WITH LOCK
-$fp = fopen(GEO_LOG_FILE, 'ab');
+$fp = fopen(LOG_FILE, 'ab');
 if ($fp === false) {
 	http_response_code(500);
 	echo json_encode(['error' => 'cannot_open_log']);
