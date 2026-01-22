@@ -10,6 +10,8 @@
 
 declare(strict_types=1);
 
+$accept = $_SERVER['HTTP_ACCEPT'] ?? '';
+$isBrowser = stripos($accept, 'text/html') !== false && stripos($accept, 'application/json') === false;
 
 /* 
  * ----------------------------------------------------------------------------
@@ -27,6 +29,14 @@ $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 if($method !== 'POST' && $method !== 'GET') {
 	http_response_code(405);
 	echo json_encode(['error' => 'method_not_allowed']);
+	exit;
+}
+
+// return empty page is request is from a browser
+if ($isBrowser) {
+	header('Content-Type: text/html; charset=utf-8');
+	http_response_code(200);
+	echo '<!doctype html><html><head><meta charset="utf-8"></head><body></body></html>';
 	exit;
 }
 
