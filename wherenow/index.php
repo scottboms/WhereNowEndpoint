@@ -10,9 +10,6 @@
 
 declare(strict_types=1);
 
-$accept = $_SERVER['HTTP_ACCEPT'] ?? '';
-$isBrowser = stripos($accept, 'text/html') !== false && stripos($accept, 'application/json') === false;
-
 /* 
  * ----------------------------------------------------------------------------
  * CONFIG
@@ -25,21 +22,29 @@ header('Content-Type: application/json; charset=utf-8');
 
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 
-// if neither POST or GET
+// if not POST and not GET
 if($method !== 'POST' && $method !== 'GET') {
 	http_response_code(405);
 	echo json_encode(['error' => 'method_not_allowed']);
 	exit;
 }
 
-// return empty page is request is from a browser
-if ($isBrowser) {
-	header('Content-Type: text/html; charset=utf-8');
-	http_response_code(200);
-	echo '<!doctype html><html><head><meta charset="utf-8"></head><body></body></html>';
-	exit;
-}
 
+// Get Bearer Token
+function getBearerToken(): ?string {
+	$auth = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
+
+	if (!$auth && function_exists('apache_request_headers')) {
+		$headers = apache_request_headers();
+		$auth = $headers['Authorization'] ?? $headers['authorization'] ?? '';
+	}
+
+	if (!preg_match('/^Bearer\s+(.+)$/i', trim($auth), $m)) {
+		return null;
+	}
+
+	return $m[1];
+}
 
 /*
  * ----------------------------------------------------------------------------
@@ -50,10 +55,10 @@ if ($isBrowser) {
  */
 
 if ($method === 'GET' && (($_GET['ping'] ?? null) === '1')) {
+	http_response_code(200);
   echo json_encode(['ok' => true]);
   exit;
 }
-
 
 /*
  * ----------------------------------------------------------------------------
@@ -63,70 +68,27 @@ if ($method === 'GET' && (($_GET['ping'] ?? null) === '1')) {
  * ----------------------------------------------------------------------------
  */
 if ($method === 'GET' && ($_GET['ping'] ?? null) === 'auth') {
+	$token = getBearerToken();
 
-	// Pull Authorization header (same logic as below)
-	$auth = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
-	if (!$auth && function_exists('apache_request_headers')) {
-		$headers = apache_request_headers();
-		$auth = $headers['Authorization'] ?? $headers['authorization'] ?? '';
-	}
-
-	if (!preg_match('/^Bearer\s+(.+)$/i', trim($auth), $m)) {
+	if (!$token || !hash_equals(TOKEN, $token)) {
 		http_response_code(401);
 		echo json_encode(['error' => 'unauthorized']);
 		exit;
 	}
-
-	$token = $m[1];
-
-	// Accept only INGEST token
-	if (!hash_equals(TOKEN, $token)) {
-	  http_response_code(401);
-	  echo json_encode(['error' => 'unauthorized']);
-	  exit;
-	}
-
+	
+	http_response_code(200);
 	echo json_encode(['ok' => true]);
 	exit;
 }
 
 
 // AUTH: Bearer token (shared)
-$auth = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
-if (!$auth && function_exists('apache_request_headers')) {
-	$headers = apache_request_headers();
-	$auth = $headers['Authorization'] ?? $headers['authorization'] ?? '';
-}
+$token = getBearerToken();
 
-// make sure token from app matches config
-if (!preg_match('/^Bearer\s+(.+)$/i', trim($auth), $m)) {
+if (!$token || !hash_equals(TOKEN, $token)) {
 	http_response_code(401);
 	echo json_encode(['error' => 'unauthorized']);
 	exit;
-}
-
-$token = $m[1];
-
-/*
- * ----------------------------------------------------------------------------
- * Responses
- * ----------------------------------------------------------------------------
- */
-
-if($method === 'POST') {
-	// POST response
-	if(!hash_equals(TOKEN, $token)) {
-		http_response_code(401);
-		echo json_encode(['error' => 'unauthorized']);
-		exit;
-	}
-} else {
-	// GET response
-	if (!hash_equals(TOKEN, $token)) {
-		http_response_code(401);
-		echo json_encode(['error' => 'unauthorized']);
-		exit;
-	}
 }
 
 
