@@ -32,12 +32,24 @@ You can confirm connectivity to the endpoint using the following shell commands.
 **Save a Location to the Log**
 
 ```bash
-curl -X POST "https://your-server.com/wherenow/" -H "Authorization: Bearer YOUR_ENDPOINT_TOKEN" -H "Content-Type: application/json" -d ""
-
-{'lat':33.812078,'lon':-117.918963,'timestamp':'2026-01-01T12:00:00Z','accuracy':12,'reason':'upload'}
+curl -X POST "https://your-server.com/wherenow/" \
+  -H "Authorization: Bearer YOUR_ENDPOINT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"id":"8f84f6af-f7e1-4db7-9c93-16d89f2a45db","lat":33.812078,"lon":-117.918963,"timestamp":"2026-01-01T12:00:00Z","accuracy":12,"label":"Disneyland","note":"Main gate","reason":"upload"}'
 ```
 
 This should return a JSON response of `{'ok':true}`.
+
+**Patch Saved Location Metadata**
+
+```bash
+curl -X PATCH "https://your-server.com/wherenow/" \
+  -H "Authorization: Bearer YOUR_ENDPOINT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"id":"8f84f6af-f7e1-4db7-9c93-16d89f2a45db","label":"Disneyland Entrance","note":"Updated note text"}'
+```
+
+This should return a JSON response of `{'ok':true,...}`.
 
 ## License
 

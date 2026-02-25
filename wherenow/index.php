@@ -22,15 +22,15 @@ header('Content-Type: application/json; charset=utf-8');
 
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 
-// if not POST and not GET
-if($method !== 'POST' && $method !== 'GET') {
+// if not POST, PATCH, and not GET
+if($method !== 'POST' && $method !== 'PATCH' && $method !== 'GET') {
 	http_response_code(405);
 	echo json_encode(['error' => 'method_not_allowed']);
 	exit;
 }
 
 
-// Get Bearer Token
+// Extract the bearer token from request headers, if present.
 function getBearerToken(): ?string {
 	$auth = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
 
@@ -44,6 +44,40 @@ function getBearerToken(): ?string {
 	}
 
 	return $m[1];
+}
+
+function isValidUuid(string $value): bool {
+	return (bool)preg_match('/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/', $value);
+}
+
+// Return string length with UTF-8 support when mbstring is available.
+function stringLength(string $value): int {
+	if (function_exists('mb_strlen')) {
+		return mb_strlen($value, 'UTF-8');
+	}
+
+	return strlen($value);
+}
+
+// Validate optional text input, trim edges, and enforce max length.
+function normalizeTextField(mixed $value, int $maxLen, string $errorCode): ?string {
+	if ($value === null) {
+		return null;
+	}
+	if (!is_string($value)) {
+		http_response_code(400);
+		echo json_encode(['error' => $errorCode]);
+		exit;
+	}
+
+	$trimmed = trim($value);
+	if (stringLength($trimmed) > $maxLen) {
+		http_response_code(400);
+		echo json_encode(['error' => $errorCode]);
+		exit;
+	}
+
+	return $trimmed;
 }
 
 /*
@@ -156,10 +190,13 @@ if ($method === 'GET') {
 			if ($reason !== 'upload') continue;
 
 			$entries[] = [
+				'id' => $data['id'] ?? null,
 				'lat' => $data['lat'] ?? null,
 				'lon' => $data['lon'] ?? null,
 				'timestamp' => $data['timestamp'] ?? null,
 				'accuracy' => $data['accuracy'] ?? null,
+				'label' => $data['label'] ?? null,
+				'note' => $data['note'] ?? null,
 				'reason' => $reason,
 			];
 		}
@@ -174,10 +211,13 @@ if ($method === 'GET') {
 				$reason = $data['reason'] ?? 'upload';
 				if ($reason === 'upload') {
 					$entries[] = [
+						'id' => $data['id'] ?? null,
 						'lat' => $data['lat'] ?? null,
 						'lon' => $data['lon'] ?? null,
 						'timestamp' => $data['timestamp'] ?? null,
 						'accuracy' => $data['accuracy'] ?? null,
+						'label' => $data['label'] ?? null,
+						'note' => $data['note'] ?? null,
 						'reason' => $reason,
 					];
 				}
@@ -192,12 +232,6 @@ if ($method === 'GET') {
 		exit;
 	}
 
-	// add incremental IDs (newest first)
-	foreach ($entries as $i => &$entry) {
-		$entry['id'] = $i + 1;
-	}
-	unset($entry);
-
 	echo json_encode($entries);
 	exit;
 }
@@ -205,7 +239,7 @@ if ($method === 'GET') {
 
 /*
  * ----------------------------------------------------------------------------
- * POST: SAVE LOCATIONS TO LOG ======
+ * POST/PATCH: SAVE OR PATCH LOCATIONS IN LOG ======
  * ----------------------------------------------------------------------------
  */
 
@@ -227,11 +261,166 @@ if (!is_array($data)) {
 	exit;
 }
 
+if ($method === 'PATCH') {
+	$id = $data['id'] ?? null;
+	if (!is_string($id) || !isValidUuid($id)) {
+		http_response_code(400);
+		echo json_encode(['error' => 'bad_id']);
+		exit;
+	}
+	$id = strtolower($id);
+
+	$hasLabel = array_key_exists('label', $data);
+	$hasNote = array_key_exists('note', $data);
+	if (!$hasLabel && !$hasNote) {
+		http_response_code(400);
+		echo json_encode(['error' => 'no_patch_fields']);
+		exit;
+	}
+
+	$label = $hasLabel ? normalizeTextField($data['label'], 60, 'bad_label') : null;
+	$note = $hasNote ? normalizeTextField($data['note'], 500, 'bad_note') : null;
+
+	$fp = fopen(LOG_FILE, 'c+b');
+	if ($fp === false) {
+		http_response_code(500);
+		echo json_encode(['error' => 'cannot_open_log']);
+		exit;
+	}
+
+	if (!flock($fp, LOCK_EX)) {
+		fclose($fp);
+		http_response_code(500);
+		echo json_encode(['error' => 'cannot_lock_log']);
+		exit;
+	}
+
+	$tempPath = tempnam(dirname(LOG_FILE), 'geo_patch_');
+	if ($tempPath === false) {
+		flock($fp, LOCK_UN);
+		fclose($fp);
+		http_response_code(500);
+		echo json_encode(['error' => 'cannot_create_temp']);
+		exit;
+	}
+
+	$tmp = fopen($tempPath, 'wb');
+	if ($tmp === false) {
+		@unlink($tempPath);
+		flock($fp, LOCK_UN);
+		fclose($fp);
+		http_response_code(500);
+		echo json_encode(['error' => 'cannot_open_temp']);
+		exit;
+	}
+
+	rewind($fp);
+	$updated = false;
+
+	while (($line = fgets($fp)) !== false) {
+		$trimmedLine = trim($line);
+		if ($trimmedLine !== '') {
+			$entry = json_decode($trimmedLine, true);
+			if (!$updated && is_array($entry) && (($entry['id'] ?? null) === $id)) {
+				if ($hasLabel) {
+					$entry['label'] = $label;
+				}
+				if ($hasNote) {
+					$entry['note'] = $note;
+				}
+				$entry['updatedAt'] = gmdate('c');
+				$line = json_encode($entry, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n";
+				$updated = true;
+			}
+		}
+
+		if (fwrite($tmp, $line) === false) {
+			fclose($tmp);
+			@unlink($tempPath);
+			flock($fp, LOCK_UN);
+			fclose($fp);
+			http_response_code(500);
+			echo json_encode(['error' => 'write_failed']);
+			exit;
+		}
+	}
+
+	if (!feof($fp)) {
+		fclose($tmp);
+		@unlink($tempPath);
+		flock($fp, LOCK_UN);
+		fclose($fp);
+		http_response_code(500);
+		echo json_encode(['error' => 'read_failed']);
+		exit;
+	}
+
+	fflush($tmp);
+	fclose($tmp);
+
+	if (!$updated) {
+		@unlink($tempPath);
+		flock($fp, LOCK_UN);
+		fclose($fp);
+		http_response_code(404);
+		echo json_encode(['error' => 'id_not_found']);
+		exit;
+	}
+
+	$tmpRead = fopen($tempPath, 'rb');
+	if ($tmpRead === false) {
+		@unlink($tempPath);
+		flock($fp, LOCK_UN);
+		fclose($fp);
+		http_response_code(500);
+		echo json_encode(['error' => 'cannot_open_temp']);
+		exit;
+	}
+
+	if (!ftruncate($fp, 0)) {
+		fclose($tmpRead);
+		@unlink($tempPath);
+		flock($fp, LOCK_UN);
+		fclose($fp);
+		http_response_code(500);
+		echo json_encode(['error' => 'write_failed']);
+		exit;
+	}
+	rewind($fp);
+
+	$copied = stream_copy_to_stream($tmpRead, $fp);
+	fclose($tmpRead);
+	@unlink($tempPath);
+
+	if ($copied === false) {
+		flock($fp, LOCK_UN);
+		fclose($fp);
+		http_response_code(500);
+		echo json_encode(['error' => 'write_failed']);
+		exit;
+	}
+
+	fflush($fp);
+	flock($fp, LOCK_UN);
+	fclose($fp);
+
+	echo json_encode([
+		'ok' => true,
+		'id' => $id,
+		'label' => $hasLabel ? $label : null,
+		'note' => $hasNote ? $note : null,
+	]);
+	exit;
+}
+
 // VALIDATE FIELDS
 $lat = $data['lat'] ?? null;
 $lon = $data['lon'] ?? null;
+$id = $data['id'] ?? null;
 $timestamp = $data['timestamp'] ?? null;
 $accuracy = $data['accuracy'] ?? null;
+$label = normalizeTextField($data['label'] ?? null, 60, 'bad_label');
+$note = normalizeTextField($data['note'] ?? null, 500, 'bad_note');
 $reason = $data['reason'] ?? null;
 
 if (!is_numeric($lat) || $lat <  -90 || $lat >  90) {
@@ -244,20 +433,28 @@ if (!is_numeric($lon) || $lon < -180 || $lon > 180) {
 	echo json_encode(['error' => 'bad_lon']);
 	exit;
 }
+if (!is_string($id) || !isValidUuid($id)) {
+	http_response_code(400);
+	echo json_encode(['error' => 'bad_id']);
+	exit;
+}
 
 // build record
 $record = [
+	'id' => strtolower($id),
 	'lat' => (float)$lat,
 	'lon' => (float)$lon,
 	'timestamp' => (is_string($timestamp) && $timestamp !== '') ? $timestamp : gmdate('c'),
 	'accuracy' => is_numeric($accuracy) ? (float)$accuracy : null,
+	'label' => $label,
+	'note' => $note,
 	'reason' => is_string($reason) ? $reason : null,
 	'receivedAt' => gmdate('c'),
 	'ua' => $_SERVER['HTTP_USER_AGENT'] ?? null,
 ];
 
 // JSON Lines line
-$line = json_encode($record, JSON_UNESCAPED_SLASHES) . "\n";
+$line = json_encode($record, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n";
 
 // APPEND WITH LOCK
 $fp = fopen(LOG_FILE, 'ab');
