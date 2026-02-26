@@ -197,6 +197,7 @@ if ($method === 'GET') {
 				'accuracy' => $data['accuracy'] ?? null,
 				'label' => $data['label'] ?? null,
 				'note' => $data['note'] ?? null,
+				'category' => $data['category'] ?? null,
 				'reason' => $reason,
 			];
 		}
@@ -218,6 +219,7 @@ if ($method === 'GET') {
 						'accuracy' => $data['accuracy'] ?? null,
 						'label' => $data['label'] ?? null,
 						'note' => $data['note'] ?? null,
+						'category' => $data['category'] ?? null,
 						'reason' => $reason,
 					];
 				}
@@ -272,7 +274,8 @@ if ($method === 'PATCH') {
 
 	$hasLabel = array_key_exists('label', $data);
 	$hasNote = array_key_exists('note', $data);
-	if (!$hasLabel && !$hasNote) {
+	$hasCategory = array_key_exists('category', $data);
+	if (!$hasLabel && !$hasNote && !$hasCategory) {
 		http_response_code(400);
 		echo json_encode(['error' => 'no_patch_fields']);
 		exit;
@@ -280,6 +283,7 @@ if ($method === 'PATCH') {
 
 	$label = $hasLabel ? normalizeTextField($data['label'], 60, 'bad_label') : null;
 	$note = $hasNote ? normalizeTextField($data['note'], 500, 'bad_note') : null;
+	$category = $hasCategory ? normalizeTextField($data['category'], 60, 'bad_category') : null;
 
 	$fp = fopen(LOG_FILE, 'c+b');
 	if ($fp === false) {
@@ -327,6 +331,9 @@ if ($method === 'PATCH') {
 				}
 				if ($hasNote) {
 					$entry['note'] = $note;
+				}
+				if ($hasCategory) {
+					$entry['category'] = $category;
 				}
 				$entry['updatedAt'] = gmdate('c');
 				$line = json_encode($entry, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n";
@@ -409,6 +416,7 @@ if ($method === 'PATCH') {
 		'id' => $id,
 		'label' => $hasLabel ? $label : null,
 		'note' => $hasNote ? $note : null,
+		'category' => $hasCategory ? $category : null,
 	]);
 	exit;
 }
@@ -421,6 +429,7 @@ $timestamp = $data['timestamp'] ?? null;
 $accuracy = $data['accuracy'] ?? null;
 $label = normalizeTextField($data['label'] ?? null, 60, 'bad_label');
 $note = normalizeTextField($data['note'] ?? null, 500, 'bad_note');
+$category = normalizeTextField($data['category'] ?? null, 60, 'bad_category');
 $reason = $data['reason'] ?? null;
 
 if (!is_numeric($lat) || $lat <  -90 || $lat >  90) {
@@ -448,6 +457,7 @@ $record = [
 	'accuracy' => is_numeric($accuracy) ? (float)$accuracy : null,
 	'label' => $label,
 	'note' => $note,
+	'category' => $category,
 	'reason' => is_string($reason) ? $reason : null,
 	'receivedAt' => gmdate('c'),
 	'ua' => $_SERVER['HTTP_USER_AGENT'] ?? null,

@@ -35,7 +35,7 @@ You can confirm connectivity to the endpoint using the following shell commands.
 curl -X POST "https://your-server.com/wherenow/" \
   -H "Authorization: Bearer YOUR_ENDPOINT_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"id":"8f84f6af-f7e1-4db7-9c93-16d89f2a45db","lat":33.812078,"lon":-117.918963,"timestamp":"2026-01-01T12:00:00Z","accuracy":12,"label":"Disneyland","note":"Main gate","reason":"upload"}'
+  -d '{"id":"8f84f6af-f7e1-4db7-9c93-16d89f2a45db","lat":33.812078,"lon":-117.918963,"timestamp":"2026-01-01T12:00:00Z","accuracy":12,"label":"Disneyland","note":"Main gate","category":"Entertainment and Recreation","reason":"upload"}'
 ```
 
 This should return a JSON response of `{'ok':true}`.
@@ -46,7 +46,7 @@ This should return a JSON response of `{'ok':true}`.
 curl -X PATCH "https://your-server.com/wherenow/" \
   -H "Authorization: Bearer YOUR_ENDPOINT_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"id":"8f84f6af-f7e1-4db7-9c93-16d89f2a45db","label":"Disneyland Entrance","note":"Updated note text"}'
+  -d '{"id":"8f84f6af-f7e1-4db7-9c93-16d89f2a45db","label":"Disneyland Entrance","note":"Updated note text","category":"Entertainment and Recreation"}'
 ```
 
 This should return a JSON response of `{'ok':true,...}`.
