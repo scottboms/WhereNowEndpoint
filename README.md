@@ -51,6 +51,8 @@ curl -X PATCH "https://your-server.com/wherenow/" \
 
 This should return a JSON response of `{'ok':true,...}`.
 
+`PATCH` requires `id`. Metadata fields are optional: `label` (max 60 chars), `note` (max 500 chars), and `category` (max 60 chars). Values are trimmed before saving. If no metadata fields are provided, the endpoint returns a no-op success response.
+
 ## License
 
 MIT License.

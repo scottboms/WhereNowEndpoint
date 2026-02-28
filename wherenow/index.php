@@ -276,8 +276,11 @@ if ($method === 'PATCH') {
 	$hasNote = array_key_exists('note', $data);
 	$hasCategory = array_key_exists('category', $data);
 	if (!$hasLabel && !$hasNote && !$hasCategory) {
-		http_response_code(400);
-		echo json_encode(['error' => 'no_patch_fields']);
+		echo json_encode([
+			'ok' => true,
+			'id' => $id,
+			'noop' => true,
+		]);
 		exit;
 	}
 
@@ -299,7 +302,7 @@ if ($method === 'PATCH') {
 		exit;
 	}
 
-	$tempPath = tempnam(dirname(LOG_FILE), 'geo_patch_');
+	$tempPath = tempnam(sys_get_temp_dir(), 'geo_patch_');
 	if ($tempPath === false) {
 		flock($fp, LOCK_UN);
 		fclose($fp);
@@ -325,7 +328,12 @@ if ($method === 'PATCH') {
 		$trimmedLine = trim($line);
 		if ($trimmedLine !== '') {
 			$entry = json_decode($trimmedLine, true);
-			if (!$updated && is_array($entry) && (($entry['id'] ?? null) === $id)) {
+			if (
+				!$updated &&
+				is_array($entry) &&
+				is_string($entry['id'] ?? null) &&
+				strtolower($entry['id']) === $id
+			) {
 				if ($hasLabel) {
 					$entry['label'] = $label;
 				}
@@ -336,7 +344,17 @@ if ($method === 'PATCH') {
 					$entry['category'] = $category;
 				}
 				$entry['updatedAt'] = gmdate('c');
-				$line = json_encode($entry, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n";
+				$encoded = json_encode($entry, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+				if ($encoded === false) {
+					fclose($tmp);
+					@unlink($tempPath);
+					flock($fp, LOCK_UN);
+					fclose($fp);
+					http_response_code(500);
+					echo json_encode(['error' => 'encode_failed']);
+					exit;
+				}
+				$line = $encoded . "\n";
 				$updated = true;
 			}
 		}
@@ -425,7 +443,8 @@ if ($method === 'PATCH') {
 $lat = $data['lat'] ?? null;
 $lon = $data['lon'] ?? null;
 $id = $data['id'] ?? null;
-$timestamp = $data['timestamp'] ?? null;
+$hasTimestamp = array_key_exists('timestamp', $data);
+$timestamp = $hasTimestamp ? $data['timestamp'] : null;
 $accuracy = $data['accuracy'] ?? null;
 $label = normalizeTextField($data['label'] ?? null, 60, 'bad_label');
 $note = normalizeTextField($data['note'] ?? null, 500, 'bad_note');
@@ -447,13 +466,19 @@ if (!is_string($id) || !isValidUuid($id)) {
 	echo json_encode(['error' => 'bad_id']);
 	exit;
 }
+if ($hasTimestamp && !is_string($timestamp)) {
+	http_response_code(400);
+	echo json_encode(['error' => 'bad_timestamp']);
+	exit;
+}
 
 // build record
 $record = [
 	'id' => strtolower($id),
 	'lat' => (float)$lat,
 	'lon' => (float)$lon,
-	'timestamp' => (is_string($timestamp) && $timestamp !== '') ? $timestamp : gmdate('c'),
+	// Preserve client-provided timestamp string exactly; only default when absent.
+	'timestamp' => $hasTimestamp ? $timestamp : gmdate('c'),
 	'accuracy' => is_numeric($accuracy) ? (float)$accuracy : null,
 	'label' => $label,
 	'note' => $note,
@@ -464,7 +489,13 @@ $record = [
 ];
 
 // JSON Lines line
-$line = json_encode($record, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n";
+$encoded = json_encode($record, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+if ($encoded === false) {
+	http_response_code(500);
+	echo json_encode(['error' => 'encode_failed']);
+	exit;
+}
+$line = $encoded . "\n";
 
 // APPEND WITH LOCK
 $fp = fopen(LOG_FILE, 'ab');
