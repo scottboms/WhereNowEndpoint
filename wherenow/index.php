@@ -22,8 +22,8 @@ header('Content-Type: application/json; charset=utf-8');
 
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 
-// if not POST, PATCH, and not GET
-if($method !== 'POST' && $method !== 'PATCH' && $method !== 'GET') {
+// if not POST, PATCH, DELETE, and not GET
+if($method !== 'POST' && $method !== 'PATCH' && $method !== 'DELETE' && $method !== 'GET') {
 	http_response_code(405);
 	echo json_encode(['error' => 'method_not_allowed']);
 	exit;
@@ -241,7 +241,7 @@ if ($method === 'GET') {
 
 /*
  * ----------------------------------------------------------------------------
- * POST/PATCH: SAVE OR PATCH LOCATIONS IN LOG ======
+ * POST/PATCH/DELETE: SAVE, PATCH, OR DELETE LOCATIONS IN LOG ======
  * ----------------------------------------------------------------------------
  */
 
@@ -435,6 +435,144 @@ if ($method === 'PATCH') {
 		'label' => $hasLabel ? $label : null,
 		'note' => $hasNote ? $note : null,
 		'category' => $hasCategory ? $category : null,
+	]);
+	exit;
+}
+
+if ($method === 'DELETE') {
+	$id = $data['id'] ?? null;
+	if (!is_string($id) || !isValidUuid($id)) {
+		http_response_code(400);
+		echo json_encode(['error' => 'bad_id']);
+		exit;
+	}
+	$id = strtolower($id);
+
+	$fp = fopen(LOG_FILE, 'c+b');
+	if ($fp === false) {
+		http_response_code(500);
+		echo json_encode(['error' => 'cannot_open_log']);
+		exit;
+	}
+
+	if (!flock($fp, LOCK_EX)) {
+		fclose($fp);
+		http_response_code(500);
+		echo json_encode(['error' => 'cannot_lock_log']);
+		exit;
+	}
+
+	$tempPath = tempnam(sys_get_temp_dir(), 'geo_delete_');
+	if ($tempPath === false) {
+		flock($fp, LOCK_UN);
+		fclose($fp);
+		http_response_code(500);
+		echo json_encode(['error' => 'cannot_create_temp']);
+		exit;
+	}
+
+	$tmp = fopen($tempPath, 'wb');
+	if ($tmp === false) {
+		@unlink($tempPath);
+		flock($fp, LOCK_UN);
+		fclose($fp);
+		http_response_code(500);
+		echo json_encode(['error' => 'cannot_open_temp']);
+		exit;
+	}
+
+	rewind($fp);
+	$deleted = false;
+
+	while (($line = fgets($fp)) !== false) {
+		$trimmedLine = trim($line);
+		if ($trimmedLine !== '') {
+			$entry = json_decode($trimmedLine, true);
+			if (
+				!$deleted &&
+				is_array($entry) &&
+				is_string($entry['id'] ?? null) &&
+				strtolower($entry['id']) === $id
+			) {
+				$deleted = true;
+				continue;
+			}
+		}
+
+		if (fwrite($tmp, $line) === false) {
+			fclose($tmp);
+			@unlink($tempPath);
+			flock($fp, LOCK_UN);
+			fclose($fp);
+			http_response_code(500);
+			echo json_encode(['error' => 'write_failed']);
+			exit;
+		}
+	}
+
+	if (!feof($fp)) {
+		fclose($tmp);
+		@unlink($tempPath);
+		flock($fp, LOCK_UN);
+		fclose($fp);
+		http_response_code(500);
+		echo json_encode(['error' => 'read_failed']);
+		exit;
+	}
+
+	fflush($tmp);
+	fclose($tmp);
+
+	if (!$deleted) {
+		@unlink($tempPath);
+		flock($fp, LOCK_UN);
+		fclose($fp);
+		http_response_code(404);
+		echo json_encode(['error' => 'id_not_found']);
+		exit;
+	}
+
+	$tmpRead = fopen($tempPath, 'rb');
+	if ($tmpRead === false) {
+		@unlink($tempPath);
+		flock($fp, LOCK_UN);
+		fclose($fp);
+		http_response_code(500);
+		echo json_encode(['error' => 'cannot_open_temp']);
+		exit;
+	}
+
+	if (!ftruncate($fp, 0)) {
+		fclose($tmpRead);
+		@unlink($tempPath);
+		flock($fp, LOCK_UN);
+		fclose($fp);
+		http_response_code(500);
+		echo json_encode(['error' => 'write_failed']);
+		exit;
+	}
+	rewind($fp);
+
+	$copied = stream_copy_to_stream($tmpRead, $fp);
+	fclose($tmpRead);
+	@unlink($tempPath);
+
+	if ($copied === false) {
+		flock($fp, LOCK_UN);
+		fclose($fp);
+		http_response_code(500);
+		echo json_encode(['error' => 'write_failed']);
+		exit;
+	}
+
+	fflush($fp);
+	flock($fp, LOCK_UN);
+	fclose($fp);
+
+	echo json_encode([
+		'ok' => true,
+		'id' => $id,
+		'deleted' => true,
 	]);
 	exit;
 }

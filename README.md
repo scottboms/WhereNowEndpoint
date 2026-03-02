@@ -53,6 +53,17 @@ This should return a JSON response of `{'ok':true,...}`.
 
 `PATCH` requires `id`. Metadata fields are optional: `label` (max 60 chars), `note` (max 500 chars), and `category` (max 60 chars). Values are trimmed before saving. If no metadata fields are provided, the endpoint returns a no-op success response.
 
+**Delete a Saved Location**
+
+```bash
+curl -X DELETE "https://your-server.com/wherenow/" \
+  -H "Authorization: Bearer YOUR_ENDPOINT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"id":"8f84f6af-f7e1-4db7-9c93-16d89f2a45db"}'
+```
+
+`DELETE` requires `id` and removes the matching row from the JSONL log. A missing `id` returns `404` with `{"error":"id_not_found"}`.
+
 ## License
 
 MIT License.
