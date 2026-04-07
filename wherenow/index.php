@@ -275,7 +275,10 @@ if ($method === 'PATCH') {
 	$hasLabel = array_key_exists('label', $data);
 	$hasNote = array_key_exists('note', $data);
 	$hasCategory = array_key_exists('category', $data);
-	if (!$hasLabel && !$hasNote && !$hasCategory) {
+	$hasTimestamp = array_key_exists('timestamp', $data);
+	$hasLat = array_key_exists('lat', $data);
+	$hasLon = array_key_exists('lon', $data);
+	if (!$hasLabel && !$hasNote && !$hasCategory && !$hasTimestamp && !$hasLat && !$hasLon) {
 		echo json_encode([
 			'ok' => true,
 			'id' => $id,
@@ -287,6 +290,25 @@ if ($method === 'PATCH') {
 	$label = $hasLabel ? normalizeTextField($data['label'], 60, 'bad_label') : null;
 	$note = $hasNote ? normalizeTextField($data['note'], 500, 'bad_note') : null;
 	$category = $hasCategory ? normalizeTextField($data['category'], 60, 'bad_category') : null;
+	$timestamp = $hasTimestamp ? $data['timestamp'] : null;
+	$lat = $hasLat ? $data['lat'] : null;
+	$lon = $hasLon ? $data['lon'] : null;
+
+	if ($hasTimestamp && !is_string($timestamp)) {
+		http_response_code(400);
+		echo json_encode(['error' => 'bad_timestamp']);
+		exit;
+	}
+	if ($hasLat && (!is_numeric($lat) || $lat < -90 || $lat > 90)) {
+		http_response_code(400);
+		echo json_encode(['error' => 'bad_lat']);
+		exit;
+	}
+	if ($hasLon && (!is_numeric($lon) || $lon < -180 || $lon > 180)) {
+		http_response_code(400);
+		echo json_encode(['error' => 'bad_lon']);
+		exit;
+	}
 
 	$fp = fopen(LOG_FILE, 'c+b');
 	if ($fp === false) {
@@ -342,6 +364,15 @@ if ($method === 'PATCH') {
 				}
 				if ($hasCategory) {
 					$entry['category'] = $category;
+				}
+				if ($hasTimestamp) {
+					$entry['timestamp'] = $timestamp;
+				}
+				if ($hasLat) {
+					$entry['lat'] = (float)$lat;
+				}
+				if ($hasLon) {
+					$entry['lon'] = (float)$lon;
 				}
 				$entry['updatedAt'] = gmdate('c');
 				$encoded = json_encode($entry, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
@@ -435,6 +466,9 @@ if ($method === 'PATCH') {
 		'label' => $hasLabel ? $label : null,
 		'note' => $hasNote ? $note : null,
 		'category' => $hasCategory ? $category : null,
+		'timestamp' => $hasTimestamp ? $timestamp : null,
+		'lat' => $hasLat ? (float)$lat : null,
+		'lon' => $hasLon ? (float)$lon : null,
 	]);
 	exit;
 }
