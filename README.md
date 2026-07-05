@@ -64,6 +64,23 @@ curl -X DELETE "https://your-server.com/wherenow/" \
 
 `DELETE` requires `id` and removes the matching row from the JSONL log. A missing `id` returns `404` with `{"error":"id_not_found"}`.
 
+## Release Testing
+
+This repository intentionally avoids Composer and third-party test dependencies. Run the dependency-free release test suite with:
+
+```bash
+php tests/run.php
+```
+
+The test runner copies the endpoint into a temporary directory, writes a test-only config file, starts PHP's built-in server on localhost, exercises the public/authenticated/persistence routes, and removes the temporary files when done.
+
+Before publishing a new release, also run PHP syntax checks:
+
+```bash
+php -l wherenow/index.php
+php -l wherenow/config.php
+```
+
 ## License
 
 MIT License.
